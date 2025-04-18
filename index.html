@@ -27,12 +27,31 @@
     }(window, document,'script','https://connect.facebook.net/en_US/fbevents.js');
     
     // Initialize pixel only once
-    fbq('init', '1224675005739488');
+    fbq('init', '1878610126217492');
     // Track PageView only once
     fbq('track', 'PageView');
+
+    // Check for Facebook Login status
+    window.fbAsyncInit = function() {
+        FB.init({
+            appId: '1878610126217492', // Your Facebook App ID (same as Pixel ID)
+            cookie: true,
+            xfbml: true,
+            version: 'v17.0'
+        });
+    };
+
+    // Load Facebook SDK
+    (function(d, s, id) {
+        var js, fjs = d.getElementsByTagName(s)[0];
+        if (d.getElementById(id)) return;
+        js = d.createElement(s); js.id = id;
+        js.src = "https://connect.facebook.net/en_US/sdk.js";
+        fjs.parentNode.insertBefore(js, fjs);
+    }(document, 'script', 'facebook-jssdk'));
     </script>
     <noscript>
-        <img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=1224675005739488&ev=PageView&noscript=1"/>
+        <img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=1878610126217492&ev=PageView&noscript=1"/>
     </noscript>
     <!-- End Meta Pixel Code -->
 </head>
@@ -466,12 +485,12 @@
     </div>
 
     <!-- Audio Elements -->
-    <audio id="celebrationSound">
+    <!-- <audio id="celebrationSound">
         <source src="images/confetti-pop-sound.mp3" type="audio/mpeg">
     </audio>
     <audio id="popSound">
         <source src="https://www.soundjay.com/buttons/sounds/button-09.mp3" type="audio/mpeg">
-    </audio>
+    </audio> -->
 
     <script src="script.js"></script>
     <script>
@@ -650,15 +669,46 @@
         // Track Purchase event on form submission
         async function trackEvent(eventName, eventData) {
             try {
-                // Send to browser pixel first
-                if (typeof fbq === 'function') {
-                    fbq('track', eventName, eventData);
+                // Get form data for enhanced matching
+                const form = document.getElementById('orderForm');
+                const phone = form ? form.querySelector('input[name="phone"]')?.value : '';
+
+                // Get Facebook Login ID if available
+                let fb_login_id = undefined;
+                if (typeof FB !== 'undefined') {
+                    try {
+                        const response = await new Promise((resolve) => {
+                            FB.getLoginStatus(function(response) {
+                                resolve(response);
+                            });
+                        });
+                        if (response.status === 'connected') {
+                            fb_login_id = response.authResponse.userID;
+                        }
+                    } catch (e) {
+                        console.log('Failed to get FB login status:', e);
+                    }
                 }
 
-                // Prepare data for CAPI
+                // Send to browser pixel first with enhanced parameters
+                if (typeof fbq === 'function') {
+                    fbq('track', eventName, {
+                        ...eventData,
+                        phone: phone
+                    });
+                }
+
+                // Get Facebook click ID (fbc) and browser ID (fbp)
+                const fbc = getCookie('_fbc') || '';
+                const fbp = getCookie('_fbp') || '';
+
+                // Prepare data for CAPI with enhanced parameters
                 const apiData = {
-                    data: {
+                    data: [{
                         event_name: eventName,
+                        event_time: Math.floor(Date.now() / 1000),
+                        action_source: "website",
+                        event_source_url: window.location.href,
                         custom_data: {
                             currency: eventData.currency,
                             value: eventData.value,
@@ -667,8 +717,16 @@
                             delivery_category: 'home_delivery',
                             shipping_cost: eventData.shipping_cost
                         },
-                        user_data: eventData.user_data
-                    }
+                        user_data: {
+                            ...eventData.user_data,
+                            ph: phone ? hash(phone.replace(/\D/g, '')) : undefined,
+                            fb_login_id: fb_login_id,
+                            client_ip_address: null, // Will be set by server
+                            client_user_agent: navigator.userAgent,
+                            fbc: fbc,
+                            fbp: fbp
+                        }
+                    }]
                 };
 
                 const response = await fetch('/.netlify/functions/conversion-api', {
@@ -676,7 +734,11 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify(apiData)
+                    body: JSON.stringify({
+                        ...apiData,
+                        pixelId: '1878610126217492',
+                        accessToken: 'EACG8LlZAZC0ioBOy4uwdlVE9VargoXKxWErf3YYSiCHOWtxehOZCaqvz2INMagZBuN0xZCyLfkRthCpVryQXEyJZAkMuqO8WlS8Xnt0JZBWO74KE8lqO7pZCbaBfFlJJTpSgO9FI4B9PM4Cb4SEI55xAXRLhJRgTfXF6Mdw3kGCYYIJfQpCCufxKKXdeGS1M9afLQgZDZD'
+                    })
                 });
 
                 if (!response.ok) {
@@ -685,8 +747,23 @@
 
                 return await response.json();
             } catch (error) {
-                throw error;
+                console.error('Error tracking event:', error);
+                return null;
             }
+        }
+
+        // Helper function to get cookies
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+            return null;
+        }
+
+        // Helper function to hash sensitive data
+        function hash(string) {
+            if (!string) return undefined;
+            return string;  // In production, you should implement proper hashing here
         }
 
         // Update the form submission handler
@@ -780,10 +857,9 @@
                     popup.classList.add('show');
                 }, 10);
 
-                // Play celebration sound
-                const celebrationSound = document.getElementById('celebrationSound');
-                if (celebrationSound) {
-                    celebrationSound.play().catch(e => console.log('Sound play failed:', e));
+                // Vibrate the phone - pattern: 500ms vibrate, 100ms pause, 500ms vibrate
+                if ('vibrate' in navigator) {
+                    navigator.vibrate([500, 100, 500]);
                 }
                 
                 // Trigger confetti
